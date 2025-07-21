@@ -1,0 +1,664 @@
+---
+title: "psrs/prs analysis"
+author: "Hinna"
+date: "2025"
+output: html_document
+---
+
+```{R}
+## 导入数据
+library(haven)
+library(openxlsx)
+library(survminer)
+library(survival)
+library(jstable)
+
+df <- read_sav("./res_update.sav")
+df <- df[, -89]
+df[, paste0("x", 1:15)] <- lapply(df[, paste0("x", 1:15)], as.factor)
+
+## 修改前10个pc成分名称和genotype batch
+colnames(df)[101:111] <- c("genotype_array", paste0("pc", 1:10))
+write.csv(df, "res_new.csv")
+
+df_sub <- df[, c("drinking", "smoking", "sex", "PSRS_3", "psrs", "PRS","age", "BMI", "Apoe", "cancer", 
+                 "hypertension", "choloresteral", "family_history", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "SCORE1_AVG", "insulin", "stroke", "CVD", "genotype_array", "pc1", "pc2", "pc3", "pc4", "pc5", "pc6", "pc7", "pc8",
+                 "pc9", "pc10", paste0("x", 1:15))]
+
+colnames(df_sub) <- c("drinking", "smoking", "sex", "PsRS", "psrs", "PRS","Age", "BMI", "APOE_status", "cancer history", 
+                 "hypertension history", "cholesterol usage", "Family history of dementia", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "prs", "insulin_usage", "stroke_history", "CVD_history", "genotype_array", "pc1", "pc2", "pc3", "pc4", "pc5", "pc6", "pc7", "pc8",
+                 "pc9", "pc10", paste0("x", 1:15))
+df_sub$PsRS_clean <- trimws(as.character(df_sub$PsRS))
+
+## 处理一下bmi类别
+df_sub <- df_sub %>%
+  mutate(BMI_category = cut(
+    BMI,
+    breaks = c(-Inf, 18.5, 25, 30, Inf),
+    labels = c(1, 2, 3, 4),
+    right = FALSE
+  )) %>%
+  mutate(BMI_category = as.numeric(as.character(BMI_category)))
+
+## 处理haven列
+df_sub <- df_sub %>%
+  mutate(across(c(drinking, smoking, PRS), ~ as.character(haven::as_factor(.))))
+df_sub <- df_sub[, -6]
+write.csv(df_sub, "res_new.csv")
+openxlsx::write.xlsx(df_sub, "res_new.xlsx")
+```
+
+
+## 预处理数据
+```{R}
+factor_col <- c("PsRS", "APOE_status", "Cancer history", 
+                 "Hypertension history", "Cholesterol history", "Family history of dementia")
+
+library(haven)
+df_sub[factor_col] <- lapply(df_sub[factor_col], as_factor)
+df_sub$ACD <- as.numeric(as.character(df_sub$ACD))
+df_sub$AD <- as.numeric(as.character(df_sub$AD))
+df_sub$VD <- as.numeric(as.character(df_sub$VD))
+names(df_sub) <- gsub(" ", "_", names(df_sub))  # 将空格改成下划线
+```
+
+## 存一个数据
+```{R}
+saveRDS(df, "ukb_data.rds")
+source("E:/charls_db/ORCI.R")
+source("PAR.R")
+```
+
+
+```{R}
+## cox回归(ACD)
+res1<-coxph(Surv(TimeYACD,ACD)~PsRS,data=df_sub)
+
+res1_adj0 <- coxph(Surv(TimeYACD,ACD)~PsRS+Age+BMI+sex, data=df_sub)
+
+res1_adj <- coxph(Surv(TimeYACD,ACD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
+
+summary(res1)
+summary(res1_adj0)
+summary(res1_adj)
+
+print(ORCI(res1))
+print(ORCI(res1_adj0))
+print(ORCI(res1_adj))
+
+## 计算ACD各类psrs的人数
+sum(df_sub$PsRS_clean == '1' & df_sub$ACD == '1')
+sum(df_sub$PsRS_clean == '2' & df_sub$ACD == '1')
+sum(df_sub$PsRS_clean == '3' & df_sub$ACD == '1')
+
+## 计算par
+calculate_pfp_boot(res1, exposure_var = "PsRS_clean", data = df_sub)
+calculate_pfp_boot(res1_adj0, exposure_var = "PsRS_clean", data = df_sub)
+calculate_pfp_boot(res1_adj, exposure_var = "PsRS_clean", data = df_sub)
+```
+
+
+```{R}
+## cox回归(AD)
+res2<-coxph(Surv(TimeYAD,AD)~PsRS,data=df_sub)
+res2_adj0 <- coxph(Surv(TimeYAD,AD)~PsRS+Age+BMI+sex, data=df_sub)
+res2_adj <- coxph(Surv(TimeYAD,AD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
+
+
+summary(res2)
+summary(res2_adj0)
+summary(res2_adj)
+
+print(ORCI(res2))
+print(ORCI(res2_adj0))
+print(ORCI(res2_adj))
+
+## 计算各类型人数
+sum(df_sub$PsRS_clean == '1' & df_sub$AD == '1')
+sum(df_sub$PsRS_clean == '2' & df_sub$AD == '1')
+sum(df_sub$PsRS_clean == '3' & df_sub$AD == '1')
+
+## 计算par
+calculate_pfp_boot(res2, exposure_var = "PsRS_clean", data = df_sub)
+calculate_pfp_boot(res2_adj0, exposure_var = "PsRS_clean", data = df_sub)
+calculate_pfp_boot(res2_adj, exposure_var = "PsRS_clean", data = df_sub)
+```
+
+```{R}
+## cox回归(VD)
+res3<-coxph(Surv(TimeYVD,VD)~PsRS,data=df_sub)
+res3_adj0 <- coxph(Surv(TimeYVD,VD)~PsRS+Age+BMI+sex, data=df_sub)
+res3_adj <- coxph(Surv(TimeYVD,VD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
+
+summary(res3)
+summary(res3_adj0)
+summary(res3_adj)
+
+print(ORCI(res3))
+print(ORCI(res3_adj0))
+print(ORCI(res3_adj))
+
+
+## 计算人群个数
+sum(df_sub$PsRS_clean == '1' & df_sub$VD == '1')
+sum(df_sub$PsRS_clean == '2' & df_sub$VD == '1')
+sum(df_sub$PsRS_clean == '3' & df_sub$VD == '1')
+
+## 计算par
+calculate_pfp_boot(res3, exposure_var = "PsRS_clean", data = df_sub)
+calculate_pfp_boot(res3_adj0, exposure_var = "PsRS_clean", data = df_sub)
+calculate_pfp_boot(res3_adj, exposure_var = "PsRS_clean", data = df_sub)
+```
+
+## Each score Increment计算
+# 将psrs转化为连续变量，然后cox回归
+```{r}
+## ACD
+res1_esi<-coxph(Surv(TimeYACD,ACD)~psrs,data=df_sub)
+res1_adj0_esi <- coxph(Surv(TimeYACD,ACD)~psrs+sex+Age+BMI, data=df_sub)
+res1_adj_esi <- coxph(Surv(TimeYACD,ACD)~psrs+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
+
+summary(res1_esi)
+summary(res1_adj0_esi)
+summary(res1_adj_esi)
+
+print(ORCI(res1_esi))
+print(ORCI(res1_adj0_esi))
+print(ORCI(res1_adj_esi))
+
+## AD
+res2_esi<-coxph(Surv(TimeYAD,AD)~psrs,data=df_sub)
+res2_adj0_esi <- coxph(Surv(TimeYAD,AD)~psrs+sex+Age+BMI, data=df_sub)
+res2_adj_esi <- coxph(Surv(TimeYAD,AD)~psrs+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
+
+summary(res2_esi)
+summary(res2_adj0_esi)
+summary(res2_adj_esi)
+
+print(ORCI(res2_esi))
+print(ORCI(res2_adj0_esi))
+print(ORCI(res2_adj_esi))
+
+## VD
+res3_esi<-coxph(Surv(TimeYVD,VD)~psrs,data=df_sub)
+res3_adj0_esi <- coxph(Surv(TimeYVD,VD)~psrs+sex+Age+BMI, data=df_sub)
+res3_adj_esi <- coxph(Surv(TimeYVD,VD)~psrs+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
+
+summary(res3_esi)
+summary(res3_adj0_esi)
+summary(res3_adj_esi)
+
+print(ORCI(res3_esi))
+print(ORCI(res3_adj0_esi))
+print(ORCI(res3_adj_esi))
+```
+
+
+
+## 可视化
+```{r}
+## 绘制多因素森林图
+# ACD
+library(ggplot2)
+library(ggpubr)
+survminer::ggforest(model = res1, data = as.data.frame(df_sub),cpositions = c(0.01, 0.15, 0.35), 
+          refLabel = "Reference",
+          fontsize = 1,
+          noDigits = 2,
+          main = "Cox Model of ACD")
+
+survminer::ggforest(model = res1_adj, data = as.data.frame(df_sub),cpositions = c(0.01, 0.15, 0.35), 
+          refLabel = "Reference",
+          fontsize = 1,
+          noDigits = 4,
+          main = "Adjusted Cox Model of ACD")
+```
+
+
+```{r}
+## 绘制多因素森林图
+# AD
+library(ggplot2)
+library(ggpubr)
+survminer::ggforest(model = res2, data = as.data.frame(df_sub),cpositions = c(0.01, 0.15, 0.35), 
+          refLabel = "Reference",
+          fontsize = 1,
+          noDigits = 2,
+          main = "Cox Model of AD")
+
+survminer::ggforest(model = res2_adj, data = as.data.frame(df_sub),cpositions = c(0.01, 0.15, 0.35), 
+          refLabel = "Reference",
+          fontsize = 1,
+          noDigits = 2,
+          main = "Adjusted Cox Model of AD")
+```
+
+
+```{r}
+## 绘制多因素森林图
+# VD
+library(ggplot2)
+library(ggpubr)
+survminer::ggforest(model = res3, data = as.data.frame(df_sub),cpositions = c(0.01, 0.15, 0.35), 
+          refLabel = "Reference",
+          fontsize = 1,
+          noDigits = 2,
+          main = "Cox Model of VD")
+
+survminer::ggforest(model = res3_adj, data = as.data.frame(df_sub),cpositions = c(0.01, 0.15, 0.35), 
+          refLabel = "Reference",
+          fontsize = 1,
+          noDigits = 2,
+          main = "Adjusted Cox Model of VD")
+```
+
+## 中高PRS风险人群的PsRS的cox回归
+```{r}
+source("PFP_bootstrap.R")
+
+## 筛选中高prs风险的人群
+hm_prs <- subset(df_sub, subset = df_sub$PRS == 2 | df_sub$PRS == 3)
+hm_prs$PsRS_clean <- trimws(as.character(hm_prs$PsRS))
+
+## cox
+# ACD
+res4<-coxph(Surv(TimeYACD,ACD)~PsRS,data=hm_prs)
+res4_adj0 <- coxph(Surv(TimeYACD,ACD)~PsRS+sex+Age+BMI, data=hm_prs)
+res4_adj1 <- coxph(Surv(TimeYACD,ACD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=hm_prs)
+
+
+res4_esi<-coxph(Surv(TimeYACD,ACD)~psrs,data=hm_prs)
+res4_adj0_esi <- coxph(Surv(TimeYACD,ACD)~psrs+sex+Age+BMI, data=hm_prs)
+res4_adj_esi <- coxph(Surv(TimeYACD,ACD)~psrs+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=hm_prs)
+
+summary(res4)
+summary(res4_adj0)
+summary(res4_adj)
+
+summary(res4_esi)
+summary(res4_adj0_esi)
+summary(res4_adj_esi)
+
+print(ORCI(res4))
+print(ORCI(res4_adj0))
+print(ORCI(res4_adj))
+print(ORCI(res4_esi))
+print(ORCI(res4_adj0_esi))
+print(ORCI(res4_adj_esi))
+
+## 计算ACD各类psrs的人数
+sum(hm_prs$PsRS_clean == '1' & hm_prs$ACD == '1')
+sum(hm_prs$PsRS_clean == '2' & hm_prs$ACD == '1')
+sum(hm_prs$PsRS_clean == '3' & hm_prs$ACD == '1')
+
+## 计算par(后面改用bootstrap求置信区间 5.13)
+calculate_pfp_boot(res4, exposure_var = "PsRS_clean", data = hm_prs)
+calculate_pfp_boot(res4_adj0, exposure_var = "PsRS_clean", data = hm_prs)
+calculate_pfp_boot(res4_adj, exposure_var = "PsRS_clean", data = hm_prs)
+```
+
+```{r}
+## cox
+# AD
+res5<-coxph(Surv(TimeYAD,AD)~PsRS,data=hm_prs)
+res5_adj0 <- coxph(Surv(TimeYAD,AD)~PsRS+sex+Age+BMI, data=hm_prs)
+res5_adj1 <- coxph(Surv(TimeYAD,AD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=hm_prs)
+
+
+res5_esi<-coxph(Surv(TimeYAD,AD)~psrs,data=hm_prs)
+res5_adj0_esi <- coxph(Surv(TimeYAD,AD)~psrs+sex+Age+BMI, data=hm_prs)
+res5_adj_esi <- coxph(Surv(TimeYAD,AD)~psrs+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=hm_prs)
+
+summary(res5)
+summary(res5_adj0)
+summary(res5_adj)
+summary(res5_esi)
+summary(res5_adj0_esi)
+summary(res5_adj_esi)
+
+print(ORCI(res5))
+print(ORCI(res5_adj0))
+print(ORCI(res5_adj))
+print(ORCI(res5_esi))
+print(ORCI(res5_adj0_esi))
+print(ORCI(res5_adj_esi))
+
+## 计算AD各类psrs的人数
+sum(hm_prs$PsRS_clean == '1' & hm_prs$AD == '1')
+sum(hm_prs$PsRS_clean == '2' & hm_prs$AD == '1')
+sum(hm_prs$PsRS_clean == '3' & hm_prs$AD == '1')
+
+## 计算par
+calculate_pfp_boot(res5, exposure_var = "PsRS_clean", data = hm_prs)
+calculate_pfp_boot(res5_adj0, exposure_var = "PsRS_clean", data = hm_prs)
+calculate_pfp_boot(res5_adj, exposure_var = "PsRS_clean", data = hm_prs)
+```
+
+```{r}
+## cox
+# VD
+res6<-coxph(Surv(TimeYVD,VD)~PsRS,data=hm_prs)
+res6_adj0 <- coxph(Surv(TimeYVD,VD)~PsRS+sex+Age+BMI, data=hm_prs)
+res6_adj1 <- coxph(Surv(TimeYVD,VD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=hm_prs)
+
+
+res6_esi<-coxph(Surv(TimeYVD,VD)~psrs,data=hm_prs)
+res6_adj0_esi <- coxph(Surv(TimeYVD,VD)~psrs+sex+Age+BMI, data=hm_prs)
+res6_adj_esi <- coxph(Surv(TimeYVD,VD)~psrs+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=hm_prs)
+
+summary(res6)
+summary(res6_adj0)
+summary(res6_adj)
+summary(res6_esi)
+summary(res6_adj0_esi)
+summary(res6_adj_esi)
+
+print(ORCI(res6))
+print(ORCI(res6_adj0))
+print(ORCI(res6_adj))
+print(ORCI(res6_esi))
+print(ORCI(res6_adj0_esi))
+print(ORCI(res6_adj_esi))
+
+## 计算VD各类psrs的人数
+sum(hm_prs$PsRS_clean == '1' & hm_prs$VD == '1')
+sum(hm_prs$PsRS_clean == '2' & hm_prs$VD == '1')
+sum(hm_prs$PsRS_clean == '3' & hm_prs$VD == '1')
+
+## 计算par
+calculate_pfp_boot(res6, exposure_var = "PsRS_clean", data = hm_prs)
+calculate_pfp_boot(res6_adj0, exposure_var = "PsRS_clean", data = hm_prs)
+calculate_pfp_boot(res6_adj, exposure_var = "PsRS_clean", data = hm_prs)
+```
+```{R}
+table(df_demen$PRS, df_demen$PsRS)
+```
+
+## PsRS和PRS的联合分析
+```{r}
+library(jstable)
+library(coxphf)
+df_sub$PRS <- as.factor(df_sub$PRS)
+df_sub$PsRS <- as.factor(df_sub$PsRS)
+#df_demen <- df_sub[df_sub$ACD == 1 | df_sub$AD == 1 | df_sub$VD == 1, ]
+
+## ACD
+res77 <- TableSubgroupMultiCox(
+  formula = Surv(TimeYACD,ACD) ~ PsRS, 
+  var_subgroups = c("PRS"),
+  var_cov = c("sex", "APOE_status", "Age", "BMI", "cancer_history", "hypertension_history", 
+              "cholesterol_usage", "Family_history_of_dementia", "insulin_usage", 
+              "stroke_history", "CVD_history", "genotype_array", "pc1", "pc2", "pc3", "pc4", 
+              "pc5", "pc6", "pc7", "pc8", "pc9", "pc10", "smoking", "drinking"),
+  data =  df_sub, decimal.hr = 3
+)
+
+
+## AD
+# 发现类别不平衡，需要合并prs组别
+df_sub$PsRS_rec <- dplyr::recode(df_sub$PsRS,
+                                 1 = `1`,
+                                 2 = `2`,
+                                 2 = `3`)  # 合并高风险进中风险组
+library(coxphf)
+df_sub$PsRS <- as.numeric(df_sub$PsRS)
+
+res8 <- TableSubgroupMultiCox(
+  formula = Surv(TimeYAD, AD) ~ PsRS, 
+  var_subgroups = c("PRS"), 
+  var_cov = c("APOE_status", "Age", "BMI", "`cancer_history`", "`hypertension_history`", "`cholesterol_usage`", "`Family_history_of_dementia`"),
+  data = df_sub,
+  decimal.hr = 3
+)
+
+## VD
+res9 <- TableSubgroupMultiCox(
+  
+  formula = Surv(TimeYVD,VD) ~ PsRS, 
+  var_subgroups = c("PRS"),
+  var_cov = c("APOE_status","Age", "BMI", "APOE_status", "`Cancer history`", "`Hypertension history`", "`Cholesterol history`", "`Family history of dementia`"),
+  data =  df_sub, decimal.hr = 3
+)
+
+```
+
+
+## 森林图可视化亚组分析结果
+```{R}
+# forest_theme
+library(forestploter)
+# 加载grid包
+library(grid)
+
+# 森林图的格式设置
+# 创建一个森林图主题，命名为tm
+tm <- forest_theme(
+  base_size = 10,        # 基本字体大小设置为10
+  ci_pch = 15,           # 置信区间点形状设置为15（实心方块）
+  #ci_col = "#762a83",   # 置信区间颜色设置为紫色（此行已注释）
+  ci_col = "black",      # 置信区间颜色设置为黑色
+  ci_fill = "black",     # 置信区间填充颜色设置为黑色
+  ci_alpha = 0.8,        # 置信区间透明度设置为0.8
+  ci_lty = 1,            # 置信区间线型设置为实线
+  ci_lwd = 2,          # 置信区间线宽设置为2
+  ci_Theight = 0.2,      # 置信区间横线高度设置为0.2
+  refline_lwd = 1.5,       # 参考线线宽设置为1.5
+  refline_lty = "dashed",# 参考线线型设置为虚线
+  refline_col = "grey20",# 参考线颜色设置为灰色
+  vertline_lwd = -0.1,   # 垂直线线宽设置为-0.1（隐藏）
+  vertline_lty = "dashed",# 垂直线线型设置为虚线
+  vertline_col = "red",  # 垂直线颜色设置为红色
+  summary_fill = "blue", # 汇总部分填充颜色设置为蓝色
+  summary_col = "#4575b4",# 汇总部分颜色设置为深蓝色
+  footnote_cex = 0.6,    # 注脚字体大小设置为0.6
+  footnote_fontface = "italic",# 注脚字体样式设置为斜体
+  footnote_col = "grey20" # 注脚颜色设置为灰色
+)
+
+## 预处理亚组分析结果
+res5 %>% write.csv(file="subgroup_analysis0.csv")
+res7 <- read.csv(file="subgroup_analysis.csv")
+
+# Count/Percent/P value/P for interaction，4列的空值设为空格
+res7[, c(2, 3, 9, 10)][is.na(res7[, c(2, 3, 9, 10)])] <- " "  
+
+# 添加空白列，用于存放森林图的图形部分
+res7$` ` <- paste(rep(" ", nrow(res7)), collapse = " ")
+
+# Count/Point Estimate/Lower/Upper, 4列数据转换为数值型
+res7[, c(2,5,6,7)] <- apply(res7[, c(2,5,6,7)], 2, as.numeric)
+
+# 计算HR (95% CI)，以便显示在图形中
+res7$"HR (95% CI)" <- ifelse(is.na(res7$"Point.Estimate"), "",
+                                 sprintf("%.3f (%.3f to %.3f)",
+                                         res7$"Point.Estimate", res7$Lower, res7$Upper))
+
+colnames(res7)[11] <- "HR (95% CI)"
+
+# 中间圆点的大小，与Count关联，数值型
+res7$se <- as.numeric(ifelse(is.na(res7$Count), " ", round(res7$Count / 1500, 4)))
+
+# Count列的空值设为空格
+res7[, c(2)][is.na(res7[, c(2)])] <- " "  
+
+res7 <- res7[,-15]
+
+# Percent列重命名，加上%
+res7 <- dplyr::rename(res7, 'Percent(%)' = Percent...) 
+res7 <- dplyr::rename(res7, 'P value' = P.value) 
+
+## 修改count和percent
+res7_count <- c(6, 40, 3, 15, 125, 13, 5, 71, 7)
+res7_count_per <- round((res7_count / sum(res7_count)), 3) * 100
+res7$Count <- " "
+res7$Count[3:5] <- c("6", "40", "3")
+res7$Count[7:9] <- c("15", "125", "13")
+res7$Count[11:13] <- c("5", "71", "7")
+res7$`Percent(%)` <- res7$Count
+res7$`Percent(%)`[3:5] <- c("2.1%", "14.0%", "1.1%")
+res7$`Percent(%)`[7:9] <- c("5.3%", "43.9%", "4.6%")
+res7$`Percent(%)`[11:13] <- c("1.8%", "24.9%", "2.5%")
+
+# 森林图绘制
+plot_sub <- forest(
+  #选择需要用于绘图的列：Variable/Count/空白列/HR(95%CI)/P value
+  data = res7[, c(1, 2, 3, 14, 11, 9)],  
+  lower = res7$Lower,  #置信区间下限
+  upper = res7$Upper,  #置信区间上限
+  est = res7$`Point.Estimate`,  #点估计值
+  sizes = res7$se*0.15,
+  ci_column = 4,  #点估计对应的列
+  ref_line = 1,   #设置参考线位置
+  xlim = c(0, 5),  # x轴的范围
+  ticks_at = c(0,1,2,3, 4, 5),
+  theme = tm
+)
+plot_sub
+#write.csv(res5, file = "subgroup_analysis.csv")
+#res5 <- read.csv("subgroup_analysis.csv")
+```
+
+## 美化森林图
+```{r}
+plot_sub <- plot_sub %>% 
+  # 指定行加粗
+  edit_plot(row = c(1),
+            col=c(1),
+            gp = gpar(fontface = "bold")) %>%
+  # 最上侧画横线
+  add_border(part = c("header")) %>%
+  # 最下侧画横线
+  add_border(row= 13) 
+  
+plot_sub
+ggsave("interaction_forestplot.pdf", plot = plot_sub, width = 8, height = 5, units = "in", dpi = 300)
+```
+
+
+## 对中高prs风险人群，x1-x12的预测模型构建
+```{R}
+## hm_prs_l
+hm_prs_l <- subset(df, subset = df$PRS == 2 | df$PRS == 3)
+
+## 构建ACD预测模型
+hp_model1 <- glm(VD ~ x1 + x2 + x3 + x4 +
+                   x5 + x6 + x7 + x8 + x9 + x10 +
+                   x11 + x12 + x13 + x14 + x15, data = hm_prs_l, 
+                 family = binomial)
+
+summary(hp_model1)
+
+## 构建AD预测模型
+hp_model2 <- glm(AD ~ x1 + x2 + x3 + x4 +
+                   x5 + x6 + x7 + x8 + x9 + x10 +
+                   x11 + x12 + x13 + x14 + x15 + smoking + drinking + 
+                   insulin + choloresteral + hypertension + 
+                   cancer + stroke + BMI, data = high_prs, family = binomial)
+
+summary(hp_model2)
+
+## 构建VD预测模型
+hp_model3 <- glm(VD ~ x1 + x2 + x3 + x4 +
+                   x5 + x6 + x7 + x8 + x9 + x10 +
+                   x11 + x12 + x13 + x14 + x15 + smoking + drinking + 
+                   insulin + choloresteral + hypertension + 
+                   cancer + stroke + BMI, data = high_prs, family = binomial)
+
+summary(hp_model3)
+```
+
+## employment status的详细研究
+```{R}
+## 截取分析的数据
+es <- df[, c("employment_status0","drinking", "smoking", "sex", "PSRS_3", "psrs", "PRS","age", "BMI", "Apoe", "cancer", 
+                 "hypertension", "choloresteral", "family_history", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "SCORE1_AVG")]
+colnames(es) <- c("employment_status","drinking", "smoking", "sex", "PsRS", "psrs", "PRS","Age", "BMI", "APOE_status", "Cancer history", 
+                 "Hypertension history", "Cholesterol history", "Family history of dementia", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "prs")
+es$PsRS_clean <- trimws(as.character(es$PsRS))
+```
+
+
+## 对es进行重编码
+```{R}
+library(dplyr)
+
+# 发现student和volunteer这一类很少人，考虑剔除
+es <- es %>%
+  mutate(
+    employment_group = case_when(
+      employment_status == 1 ~ "working",
+      employment_status == 2 ~ "retired",
+      employment_status == 3 ~ "home",
+      employment_status == 4 ~ "disabled",
+      employment_status == 5 ~ "unemployed",
+      employment_status == 6 ~ "volunteer",
+      employment_status == 7 ~ "student",
+      employment_status == -7 ~ NA_character_,
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  # 🔥 去除 student 和 volunteer
+  filter(!employment_group %in% c("student", "volunteer")) %>%
+  subset(PRS == 2 | PRS == 3) %>%
+  # ✅ 重新设置因子 levels
+  mutate(employment_group = factor(employment_group, levels = c(
+    "working", "disabled", "retired", "unemployed", "home"
+  )))
+
+
+## 逻辑回归
+es_model <- glm(ACD ~ employment_group, data = es, family = binomial)
+summary(es_model)
+print(ORCI(es_model))
+
+
+## 调整协变量的模型
+es_model_new1 = glm(ACD ~ employment_group+sex+Age+BMI, data = es, family = binomial)
+summary(es_model_new1)
+print(ORCI(es_model_new1))
+
+es_model_new2 = glm(ACD ~ employment_group+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data = es, family = binomial)
+summary(es_model_new2)
+print(ORCI(es_model_new2))
+```
+
+
+## educational level的详细研究
+```{R}
+## 截取分析的数据
+el <- df[, c("education_qualifications0","drinking", "smoking", "sex", "PSRS_3", "psrs", "PRS","age", "BMI", "Apoe", "cancer", 
+                 "hypertension", "choloresteral", "family_history", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "SCORE1_AVG")]
+colnames(el) <- c("education level","drinking", "smoking", "sex", "PsRS", "psrs", "PRS","Age", "BMI", "APOE_status", "Cancer history", 
+                 "Hypertension history", "Cholesterol history", "Family history of dementia", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "prs")
+el$PsRS_clean <- trimws(as.character(el$PsRS))
+el <- el %>%
+  mutate(PRS = as.numeric(PRS)) %>%
+  filter(PRS %in% c(2, 3))
+```
+
+
+## 对el进行重编码
+```{R}
+el <- el %>%
+  mutate(
+    edu_level = ifelse(`education level` == 1, "Higher", "Lower"),
+    edu_level = factor(edu_level, levels = c("Higher", "Lower"))  # 以 Higher 为参考组
+  )
+
+
+## 逻辑回归
+el_model <- glm(ACD ~ edu_level, data = el, family = binomial)
+summary(el_model)
+print(ORCI(el_model))
+
+
+## 调整协变量的模型
+el_model_new1 = glm(ACD ~ edu_level+sex+Age+BMI, data = el, family = binomial)
+summary(el_model_new1)
+print(ORCI(el_model_new1))
+
+el_model_new2 = glm(ACD ~ edu_level+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data = el, family = binomial)
+summary(el_model_new2)
+print(ORCI(el_model_new2))
+```
+

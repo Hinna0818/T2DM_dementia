@@ -1,0 +1,380 @@
+---
+title: "RCS_psrs"
+author: "Hinna"
+date: "2025-05-05"
+output: html_document
+---
+
+```{r}
+library(survminer)
+library(survival)
+library(jstable)
+library(rms)
+```
+
+```{R}
+rcs_data <- df[, c("PSRS_3", "psrs", "PRS","age", "BMI", "Apoe", "cancer", 
+                 "hypertension", "choloresteral", "family_history", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "SCORE1_AVG", "smoking", "drinking", "CVD", "stroke", "insulin")]
+
+colnames(rcs_data) <- c("PsRS_3","PsRS","PRS","Age", "BMI", "APOE_status", "Cancer_history", 
+                 "hypertension_history", "cholesterol_usage", "Family_history_of_dementia", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "prs", "smoking", "drinking", "CVD_history", "stroke_history", "insulin_usage")
+```
+
+## ACD的RCS绘制
+```{r}
+rcs_data$ACD <- as.numeric(as.character(rcs_data$ACD))
+rcs_data$PsRS <- as.numeric(rcs_data$PsRS)
+
+dd <- datadist(rcs_data) #为后续程序设定数据环境
+options(datadist='dd') #为后续程序设定数据环境
+
+
+#cox回归中自变量对HR的rcs
+fit_ACD_psrs <- cph(Surv(TimeYACD,ACD) ~ rcs(PsRS,4)+Age+BMI+APOE_status+Cancer_history+hypertension_history+cholesterol_usage+Family_history_of_dementia+smoking+drinking+CVD_history+stroke_history+insulin_usage, x=TRUE, y=TRUE,data=rcs_data)#大样本5节点，小样本(<30)3节点
+
+#比例风险PH假设检验,p>0.05满足假设检验
+#cox.zph(fit_ACD,"rank")
+#非线性检验，p<0.05为有非线性关系
+anova(fit_ACD_psrs) ## 不显著
+```
+
+## 画ACD的rcs
+```{r}
+HR_ACD_psrs <- Predict(fit_ACD_psrs, PsRS, fun=exp)
+
+# 主图：HR + density 柱状图（右轴）
+ggplot() +
+  # ① PRS 频率密度柱状图（右轴，y 值需缩放）
+  geom_histogram(data = rcs_data,
+                 aes(x = PsRS, y = ..density.. * 13, fill = "PsRS Distribution", ),
+                 binwidth = 1,
+                 color = "white", alpha = 0.5) +
+
+  # ② HR 曲线
+  geom_line(data = HR_ACD_psrs,
+            aes(x = PsRS, y = yhat, color = "HR (95% CI)"), size = 1) +
+
+  # ③ HR 的置信区间
+  geom_ribbon(data = HR_ACD_psrs,
+              aes(x = PsRS, ymin = lower, ymax = upper, fill = "OR (95% CI)"),
+              alpha = 0.1) +
+
+  # ④ HR = 1 的基线
+  #geom_hline(yintercept = 1, linetype = 2, size = 1) +
+
+  # ⑤ 双 y 轴设置
+  scale_y_continuous(
+    name = "HR (95% CI)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Frequency density")
+  ) +
+  scale_fill_manual(
+  name = "",
+  values = c(
+    "PsRS Distribution" = "#B3CDE3",
+    "OR (95% CI)" = "#EF2C2B"
+  )
+) +
+  scale_color_manual(
+  name = "",
+  values = c(
+    "HR (95% CI)" = "#EF2C2B"
+  )
+) +
+  labs(title = "All-cause dementia",
+       x = "Polysocial risk score") +
+  
+  scale_x_continuous(
+  name = "Polysocial risk score",
+  expand = expansion(mult = c(0, 0.005))  # 左侧1%，右侧5%的留白
+)+
+
+  theme_classic() +
+  theme(
+    axis.title.y.left = element_text(color = "black", size = 12),
+    axis.title.y.right = element_text(color = "black", size = 12),
+    axis.line.y.left = element_line(color = "black"),
+    axis.line.y.right = element_line(color = "black"),
+    plot.title = element_text(size = 16),
+    legend.position = c(0.01, 1.05),
+    legend.justification = c("left", "top"),
+    legend.direction = "vertical",    
+    legend.box = "vertical",
+    legend.spacing.y = unit(0.5, "pt"))
+ggsave("rcs_psrs_ACD_new.pdf", width = 6, height = 5, units = "in", dpi = 300)
+```
+
+## ACD的KM曲线
+```{R}
+library(dplyr)
+
+rcs_data <- rcs_data %>%
+  mutate(PsRS_group = case_when(
+    PsRS >= 0 & PsRS <= 5  ~ "1",
+    PsRS >= 6 & PsRS <= 10 ~ "2",
+    PsRS >= 11 & PsRS <= 15 ~ "3"
+  )) %>%
+  mutate(PsRS_group = factor(PsRS_group, levels = c("1", "2", "3")))
+
+library(survival)
+library(survminer)
+
+# KM拟合
+fit_km <- survfit(Surv(TimeYACD, ACD) ~ PsRS_group, data = rcs_data)
+
+# 绘图
+p <- ggsurvplot(
+  fit_km,
+  data = rcs_data,
+  fun = "event",                         # 绘制累积发病率
+  conf.int = TRUE,                       # 置信区间
+  risk.table = TRUE,                     # 添加风险表
+  pval = TRUE,                           # 显示 log-rank 检验 p 值
+  legend.title = "PsRS Category",
+  xlab = "Years of follow-up",
+  ylab = "Cumulative incidence per 1000 person-years",
+  ggtheme = theme_minimal(base_size = 12),  # 主图字体
+  break.time.by = 2,                     # 时间轴分隔
+  risk.table.height = 0.2,               # 风险表高度
+  risk.table.title = "Number at risk",   # 风险表标题
+  tables.theme = theme_classic(base_size = 10),  # 风险表字体
+  palette = "Set2"                       # 可选配色方案
+)
+
+# 手动调整 y 轴单位为 每1000人年
+p$plot <- p$plot +
+  scale_y_continuous(labels = function(x) x * 1000) +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11)
+  )
+
+# 输出图
+print(p)
+```
+
+
+
+
+## AD的RCS绘制
+```{r}
+rcs_data$AD <- as.numeric(as.character(rcs_data$AD))
+dd <- datadist(rcs_data) #为后续程序设定数据环境
+options(datadist='dd') #为后续程序设定数据环境
+
+
+#cox回归中自变量对HR的rcs
+fit_AD_psrs <- cph(Surv(TimeYAD,AD) ~ rcs(PsRS,4)+Age+BMI+APOE_status+Cancer_history+hypertension_history+cholesterol_usage+Family_history_of_dementia+smoking+drinking+CVD_history+stroke_history+insulin_usage, x=TRUE, y=TRUE,data=rcs_data)
+
+#比例风险PH假设检验,p>0.05满足假设检验
+#cox.zph(fit_ACD,"rank")
+#非线性检验，p<0.05为有非线性关系
+anova(fit_AD_psrs) ## 不显著
+```
+
+## 画AD的RCS图
+```{R}
+HR_AD_psrs <- Predict(fit_AD_psrs, PsRS, fun=exp)
+
+# 主图：HR + density 柱状图（右轴）
+ggplot() +
+  # ① PRS 频率密度柱状图（右轴，y 值需缩放）
+  geom_histogram(data = rcs_data,
+                 aes(x = PsRS, y = ..density.. * 18, fill = "PsRS Distribution", ),
+                 binwidth = 1,
+                 color = "white", alpha = 0.5) +
+
+  # ② HR 曲线
+  geom_line(data = HR_AD_psrs,
+            aes(x = PsRS, y = yhat, color = "HR (95% CI)"), size = 1) +
+
+  # ③ HR 的置信区间
+  geom_ribbon(data = HR_AD_psrs,
+              aes(x = PsRS, ymin = lower, ymax = upper, fill = "OR (95% CI)"),
+              alpha = 0.1) +
+
+  # ④ HR = 1 的基线
+  #geom_hline(yintercept = 1, linetype = 2, size = 1) +
+
+  # ⑤ 双 y 轴设置
+  scale_y_continuous(
+    name = "HR (95% CI)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Frequency density")
+  ) +
+  scale_fill_manual(
+  name = "",
+  values = c(
+    "PsRS Distribution" = "#B3CDE3",
+    "OR (95% CI)" = "#EF2C2B"
+  )
+) +
+  scale_color_manual(
+  name = "",
+  values = c(
+    "HR (95% CI)" = "#EF2C2B"
+  )
+) +
+  labs(title = "Alzhimer's disease",
+       x = "Polysocial risk score") +
+  
+  scale_x_continuous(
+  name = "Polysocial risk score",
+  expand = expansion(mult = c(0, 0.005))  # 左侧1%，右侧5%的留白
+)+
+
+  theme_classic() +
+  theme(
+    axis.title.y.left = element_text(color = "black", size = 12),
+    axis.title.y.right = element_text(color = "black", size = 12),
+    axis.line.y.left = element_line(color = "black"),
+    axis.line.y.right = element_line(color = "black"),
+    plot.title = element_text(size = 16),
+    legend.position = c(0.01, 1.05),
+    legend.justification = c("left", "top"),
+    legend.direction = "vertical",    
+    legend.box = "vertical",
+    legend.spacing.y = unit(0.5, "pt"))
+
+ggsave("rcs_psrs_AD_new.pdf", width = 6, height = 5, units = "in", dpi = 300)
+```
+
+## VD的RCS绘制
+```{r}
+rcs_data$VD <- as.numeric(as.character(rcs_data$VD))
+dd <- datadist(rcs_data) #为后续程序设定数据环境
+options(datadist='dd') #为后续程序设定数据环境
+
+
+#cox回归中自变量对HR的rcs
+fit_VD_psrs <- cph(Surv(TimeYVD,VD) ~ rcs(PsRS,4)+Age+BMI+APOE_status+Cancer_history+hypertension_history+cholesterol_usage+Family_history_of_dementia+smoking+drinking+CVD_history+stroke_history+insulin_usage, x=TRUE, y=TRUE,data=rcs_data)
+
+#比例风险PH假设检验,p>0.05满足假设检验
+#cox.zph(fit_ACD,"rank")
+#非线性检验，p<0.05为有非线性关系
+anova(fit_VD_psrs) ## 不显著
+```
+
+## 画VD的RCS图
+```{R}
+HR_VD_psrs <- Predict(fit_VD_psrs, PsRS, fun=exp)
+
+# 主图：HR + density 柱状图（右轴）
+ggplot() +
+  # ① PRS 频率密度柱状图（右轴，y 值需缩放）
+  geom_histogram(data = rcs_data,
+                 aes(x = PsRS, y = ..density.. * 18, fill = "PsRS Distribution", ),
+                 binwidth = 1,
+                 color = "white", alpha = 0.5) +
+
+  # ② HR 曲线
+  geom_line(data = HR_VD_psrs,
+            aes(x = PsRS, y = yhat, color = "HR (95% CI)"), size = 1) +
+
+  # ③ HR 的置信区间
+  geom_ribbon(data = HR_VD_psrs,
+              aes(x = PsRS, ymin = lower, ymax = upper, fill = "OR (95% CI)"),
+              alpha = 0.1) +
+
+  # ④ HR = 1 的基线
+  #geom_hline(yintercept = 1, linetype = 2, size = 1) +
+
+  # ⑤ 双 y 轴设置
+  scale_y_continuous(
+    name = "HR (95% CI)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Frequency density")
+  ) +
+  scale_fill_manual(
+  name = "",
+  values = c(
+    "PsRS Distribution" = "#B3CDE3",
+    "OR (95% CI)" = "#EF2C2B"
+  )
+) +
+  scale_color_manual(
+  name = "",
+  values = c(
+    "HR (95% CI)" = "#EF2C2B"
+  )
+) +
+  labs(title = "Vascular disease",
+       x = "Polysocial risk score") +
+  
+  scale_x_continuous(
+  name = "Polysocial risk score",
+  expand = expansion(mult = c(0, 0.005))  # 左侧1%，右侧5%的留白
+)+
+
+  theme_classic() +
+  theme(
+    axis.title.y.left = element_text(color = "black", size = 12),
+    axis.title.y.right = element_text(color = "black", size = 12),
+    axis.line.y.left = element_line(color = "black"),
+    axis.line.y.right = element_line(color = "black"),
+    plot.title = element_text(size = 16),
+    legend.position = c(0.01, 1.05),
+    legend.justification = c("left", "top"),
+    legend.direction = "vertical",    
+    legend.box = "vertical",
+    legend.spacing.y = unit(0.5, "pt"))
+
+ggsave("rcs_psrs_VD_new.pdf", width = 6, height = 5, units = "in", dpi = 300)
+```
+
+## 用rmssci来美化rcs曲线
+```{r}
+library(rcssci)
+
+rcs_data <- rcs_data %>%
+  mutate(across(where(~ inherits(., "haven_labelled")), haven::as_factor))
+
+## acd_psrs
+source("rcs_cox.prob.R")
+rcs_cox.prob(
+  knot = 4,
+  data = df_sub,
+  y = "ACD",                     # 结局事件
+  x = "psrs",                    # 暴露变量
+  time = "TimeYACD",             # 生存时间
+  covs = c("Age", "BMI", "APOE_status", "cancer_history", 
+         "hypertension_history", "cholesterol_usage", 
+         "Family_history_of_dementia", "smoking", "drinking", 
+         "CVD_history", "stroke_history", "insulin_usage"),
+  prob = 0.1,                    # 可以调整敏感性分析的置信区间，0.1是默认
+  discrete = TRUE,
+  filepath = "E:/PsRS/analysis/rcs_psrs_acd")
+
+## ad_psrs
+rcs_cox.prob(
+  knot = 4,
+  data = df_sub,
+  y = "AD",                     # 结局事件
+  x = "psrs",                    # 暴露变量
+  time = "TimeYAD",             # 生存时间
+  covs = c("Age", "BMI", "APOE_status", "cancer_history", 
+         "hypertension_history", "cholesterol_usage", 
+         "Family_history_of_dementia", "smoking", "drinking", 
+         "CVD_history", "stroke_history", "insulin_usage"),
+  prob = 0.1,                    # 可以调整敏感性分析的置信区间，0.1是默认
+  discrete = TRUE,
+  filepath = "E:/PsRS/analysis/rcs_psrs_ad")
+
+## vd_psrs
+rcs_cox.prob(
+  knot = 4,
+  data = df_sub,
+  y = "VD",                     # 结局事件
+  x = "psrs",                    # 暴露变量
+  time = "TimeYVD",             # 生存时间
+  covs = c("Age", "BMI", "APOE_status", "cancer_history", 
+         "hypertension_history", "cholesterol_usage", 
+         "Family_history_of_dementia", "smoking", "drinking", 
+         "CVD_history", "stroke_history", "insulin_usage"),
+  prob = 0.1,                    # 可以调整敏感性分析的置信区间，0.1是默认
+  discrete = TRUE,
+  filepath = "E:/PsRS/analysis/rcs_psrs_vd")
+```
+
+
+

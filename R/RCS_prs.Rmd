@@ -1,0 +1,344 @@
+---
+title: "rcs"
+author: "Hinna"
+date: "2025-04-24"
+output: html_document
+---
+
+```{r}
+library(survminer)
+library(survival)
+library(jstable)
+library(rms)
+```
+
+## prs的rcs曲线
+```{r}
+rcs_data <- df[, c("PSRS_3", "PRS","age", "BMI", "Apoe", "cancer", 
+                 "hypertension", "choloresteral", "family_history", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "SCORE1_AVG", "genotype_array", paste0("pc", 1:10))]
+
+colnames(rcs_data) <- c("PsRS", "PRS","Age", "BMI", "APOE_status", "Cancer_history", "Hypertension_history", "Cholesterol_history", "Family_history_of_dementia", "TimeYACD", "TimeYAD", "TimeYVD", "ACD", "AD", "VD", "prs", "genotype_array", paste0("pc", 1:10))
+
+lower_bound <- quantile(rcs_data$prs, 0.005)
+upper_bound <- quantile(rcs_data$prs, 0.993)
+
+rcs_data$ACD <- as.numeric(as.character(rcs_data$ACD))
+rcs_data$prs <- as.numeric(rcs_data$prs)
+
+## 标准化prs
+df_sub$prs_sd <- as.numeric(scale(df_sub$prs))
+rcs_data$prs_sd <- as.numeric(scale(rcs_data$prs))
+
+dd <- datadist(df_sub) #为后续程序设定数据环境
+options(datadist='dd') #为后续程序设定数据环境
+```
+
+
+## ACD的RCS绘制
+```{r}
+#cox回归中自变量对HR的rcs
+fit_ACD <- cph(Surv(TimeYACD,ACD) ~ rcs(prs_sd,4)+Age+genotype_array+pc1+
+               pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10, x=TRUE, y=TRUE,data = df_sub)
+
+#比例风险PH假设检验,p>0.05满足假设检验
+#cox.zph(fit_ACD,"rank")
+#非线性检验，p<0.05为有非线性关系
+anova(fit_ACD)
+
+library(rcssci)
+
+# 调用 rcssci_cox 函数
+rcssci_cox(
+  knot = 3,
+  data = df_sub,
+  y = "ACD",          # 结局变量
+  x = "prs_sd",          # 主要暴露变量
+  time = "TimeYACD",  # 生存时间变量
+  covs = c("Age", "genotype_array", 
+           "pc1", "pc2", "pc3", "pc4", "pc5", 
+           "pc6", "pc7", "pc8", "pc9", "pc10"),
+  prob = 0.1, filepath = "E:/PsRS/analysis/rcs_prs_acd")
+```
+
+
+## acd最终版本
+```{R}
+HR_ACD <- Predict(fit_ACD, prs_sd, fun=exp)
+scale_factor <- max(HR_ACD$yhat, na.rm = TRUE) / 
+                max(ggplot_build(ggplot(df_sub, aes(prs_sd)) +
+                                 geom_histogram(aes(y = ..density..), binwidth = 0.0003))$data[[1]]$density)
+
+ggplot() +
+  # ① PRS density histogram with legend
+  geom_histogram(data = df_sub,
+                 aes(x = prs_sd, y = ..density.. * scale_factor * 2, fill = "PRS Distribution"),
+                 binwidth = 0.00015,
+                 color = "white", alpha = 0.4) +
+
+  # ② HR line with legend
+  geom_line(data = HR_ACD,
+            aes(x = prs_sd, y = yhat, color = "HR (95% CI)"),
+            size = 1) +
+
+  # ③ HR confidence ribbon (silent in legend)
+  geom_ribbon(data = HR_ACD,
+              aes(x = prs_sd, ymin = lower, ymax = upper, fill = "HR (95% CI)"), alpha = 0.1, inherit.aes = FALSE) +
+
+  # ⑤ dual y-axis
+  scale_y_continuous(
+    name = "HR (95% CI)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Frequency density")
+  ) +
+
+  # ⑥ manual legends
+  scale_fill_manual(
+  name = "",
+  values = c(
+    "PRS Distribution" = "#B3CDE3",
+    "HR (95% CI)" = "#EF2C2B"
+  )
+) +
+  scale_color_manual(
+  name = "",
+  values = c(
+    "HR (95% CI)" = "#EF2C2B"
+  )
+) +
+  coord_cartesian(xlim = c(lower_bound, upper_bound))+
+
+  # ⑦ labels and theme
+  labs(title = "All-cause dementia",
+       x = "Polygenic risk score") +
+  theme_classic() +
+  theme(
+    axis.title.y.left = element_text(color = "black", size = 12),
+    axis.title.y.right = element_text(color = "black", size = 12),
+    axis.line.y.left = element_line(color = "black"),
+    axis.line.y.right = element_line(color = "black"),
+    plot.title = element_text(size = 16),
+    legend.position = c(0.01, 1.05),
+    legend.justification = c("left", "top"),
+    legend.direction = "vertical",    
+    legend.box = "vertical",
+    legend.spacing.y = unit(0.5, "pt"))
+ggsave("rcs_plot_ACD_new.pdf", width = 7, height = 5, units = "in", dpi = 300)
+```
+
+
+## AD的RCS绘制
+```{r}
+rcs_data$AD <- as.numeric(as.character(rcs_data$AD))
+rcs_data$prs <- as.numeric(rcs_data$prs)
+
+dd <- datadist(rcs_data) #为后续程序设定数据环境
+options(datadist='dd') #为后续程序设定数据环境
+
+#cox回归中自变量对HR的rcs
+fit_AD <- cph(Surv(TimeYAD,AD) ~ rcs(prs,4)+Age+genotype_array+pc1+
+               pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10, x=TRUE, y=TRUE,data = df_sub)
+
+#比例风险PH假设检验,p>0.05满足假设检验
+#cox.zph(fit_ACD,"rank")
+#非线性检验，p<0.05为有非线性关系
+anova(fit_AD) ## 不显著
+```
+
+## AD_RCS画图
+```{r}
+HR_AD <- Predict(fit_AD, prs, fun=exp)
+
+# 缩放因子：使 density 高度与 HR 比例协调
+scale_factor2 <- max(HR_AD$yhat, na.rm = TRUE) / 
+                max(ggplot_build(ggplot(rcs_data, aes(prs)) +
+                                 geom_histogram(aes(y = ..density..), binwidth = 0.0003))$data[[1]]$density)
+
+ggplot() +
+  # ① PRS density histogram with legend
+  geom_histogram(data = df_sub,
+                 aes(x = prs, y = ..density.. * scale_factor * 4.5, fill = "PRS Distribution"),
+                 binwidth = 0.00015,
+                 color = "grey", alpha = 0.4) +
+
+  # ② HR line with legend
+  geom_line(data = HR_AD,
+            aes(x = prs, y = yhat, color = "HR (95% CI)"),
+            size = 1) +
+
+  # ③ HR confidence ribbon (silent in legend)
+  geom_ribbon(data = HR_AD,
+              aes(x = prs, ymin = lower, ymax = upper, fill = "HR (95% CI)"), alpha = 0.1, inherit.aes = FALSE) +
+
+  # ⑤ dual y-axis
+  scale_y_continuous(
+    name = "HR (95% CI)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Frequency density")
+  ) +
+
+  # ⑥ manual legends
+  scale_fill_manual(
+  name = "",
+  values = c(
+    "PRS Distribution" = "#f9f7f7",
+    "HR (95% CI)" = "#EF2C2B"
+  )
+) +
+  scale_color_manual(
+  name = "",
+  values = c(
+    "HR (95% CI)" = "#EF2C2B"
+  )
+) +
+  coord_cartesian(xlim = c(lower_bound, upper_bound))+
+
+  # ⑦ labels and theme
+  labs(title = "Alzheimer's disease",
+       x = "Polygenic risk score") +
+  theme_classic() +
+  theme(
+    axis.title.y.left = element_text(color = "black", size = 12),
+    axis.title.y.right = element_text(color = "black", size = 12),
+    axis.line.y.left = element_line(color = "black"),
+    axis.line.y.right = element_line(color = "black"),
+    plot.title = element_text(size = 16),
+    legend.position = c(0.01, 1.05),
+    legend.justification = c("left", "top"),
+    legend.direction = "vertical",    
+    legend.box = "vertical",
+    legend.spacing.y = unit(0.5, "pt"))
+
+ggsave("rcs_plot_AD_new.pdf", width = 7, height = 5, units = "in", dpi = 300)
+```
+
+## VD的RCS绘制
+```{r}
+rcs_data$VD <- as.numeric(as.character(rcs_data$VD))
+rcs_data$prs <- as.numeric(rcs_data$prs)
+
+dd <- datadist(rcs_data) #为后续程序设定数据环境
+options(datadist='dd') #为后续程序设定数据环境
+
+#cox回归中自变量对HR的rcs
+fit_VD <- cph(Surv(TimeYVD,VD) ~ rcs(prs,4)+Age+genotype_array+pc1+
+               pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10, x=TRUE, y=TRUE,data = rcs_data)
+
+#比例风险PH假设检验,p>0.05满足假设检验
+#cox.zph(fit_ACD,"rank")
+#非线性检验，p<0.05为有非线性关系
+anova(fit_VD) ## 不显著
+```
+
+
+## VD_RCS画图
+```{r}
+HR_VD <- Predict(fit_VD, prs, fun=exp)
+
+# 缩放因子：使 density 高度与 HR 比例协调
+scale_factor3 <- max(HR_VD$yhat, na.rm = TRUE) / 
+                max(ggplot_build(ggplot(rcs_data, aes(prs)) +
+                                 geom_histogram(aes(y = ..density..), binwidth = 0.0003))$data[[1]]$density)
+
+ggplot() +
+  # ① PRS density histogram with legend
+  geom_histogram(data = rcs_data,
+                 aes(x = prs, y = ..density.. * scale_factor * 4, fill = "PRS Distribution"),
+                 binwidth = 0.00015,
+                 color = "white", alpha = 0.4) +
+
+  # ② HR line with legend
+  geom_line(data = HR_VD,
+            aes(x = prs, y = yhat, color = "HR (95% CI)"),
+            size = 1) +
+
+  # ③ HR confidence ribbon (silent in legend)
+  geom_ribbon(data = HR_VD,
+              aes(x = prs, ymin = lower, ymax = upper, fill = "HR (95% CI)"),
+              alpha = 0.1, inherit.aes = FALSE) +
+
+  # ⑤ dual y-axis
+  scale_y_continuous(
+    name = "HR (95% CI)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Frequency density")
+  ) +
+
+  # ⑥ manual legends
+  scale_fill_manual(
+  name = "",
+  values = c(
+    "PRS Distribution" = "#B3CDE3",
+    "HR (95% CI)" = "#e23e57"
+  )
+) +
+  scale_color_manual(
+  name = "",
+  values = c(
+    "HR (95% CI)" = "#e23e57"
+  )
+)  +
+  coord_cartesian(xlim = c(lower_bound, upper_bound))+
+
+  # ⑦ labels and theme
+  labs(title = "Vascular dementia",
+       x = "Polygenic risk score") +
+  theme_classic() +
+  theme(
+    axis.title.y.left = element_text(color = "black", size = 12),
+    axis.title.y.right = element_text(color = "black", size = 12),
+    axis.line.y.left = element_line(color = "black"),
+    axis.line.y.right = element_line(color = "black"),
+    plot.title = element_text(size = 16),
+    legend.position = c(0.01, 1.05),
+    legend.justification = c("left", "top"),
+    legend.direction = "vertical",    
+    legend.box = "vertical",
+    legend.spacing.y = unit(0.5, "pt"))
+
+ggsave("rcs_plot_VD_new.pdf", width = 7, height = 5, units = "in", dpi = 300)
+
+```
+
+
+## 用rmssci包美化rcs图
+```{r}
+library(rcssci)
+source("rcs_cox_prob_subset.R")
+
+## prs_acd
+rcs_cox.prob(
+  knot = 4,
+  data = df_sub,
+  y = "ACD",          # 结局变量
+  x = "prs_sd",          # 主要暴露变量
+  time = "TimeYACD",  # 生存时间变量
+  covs = c("Age", "genotype_array", 
+           "pc1", "pc2", "pc3", "pc4", "pc5", 
+           "pc6", "pc7", "pc8", "pc9", "pc10"),
+  prob = 0.1, filepath = "E:/PsRS/analysis/rcs_prs_acd")
+
+
+## prs_ad
+rcs_cox.prob(
+  knot = 4,
+  data = df_sub,
+  y = "AD",          # 结局变量
+  x = "prs_sd",          # 主要暴露变量
+  time = "TimeYAD",  # 生存时间变量
+  covs = c("Age", "genotype_array", 
+           "pc1", "pc2", "pc3", "pc4", "pc5", 
+           "pc6", "pc7", "pc8", "pc9", "pc10"),
+  prob = 0.1, filepath = "E:/PsRS/analysis/rcs_prs_ad")
+
+## prs_vd
+rcs_cox.prob(
+  knot = 4,
+  data = df_sub,
+  y = "VD",          # 结局变量
+  x = "prs_sd",          # 主要暴露变量
+  time = "TimeYVD",  # 生存时间变量
+  covs = c("Age", "genotype_array", 
+           "pc1", "pc2", "pc3", "pc4", "pc5", 
+           "pc6", "pc7", "pc8", "pc9", "pc10"),
+  prob = 0.1, filepath = "E:/PsRS/analysis/rcs_prs_vd")
+```
+
+
+
