@@ -6,7 +6,6 @@ output: html_document
 ---
 
 ```{R}
-## 导入数据
 library(haven)
 library(openxlsx)
 library(survminer)
@@ -17,7 +16,6 @@ df <- read_sav("./res_update.sav")
 df <- df[, -89]
 df[, paste0("x", 1:15)] <- lapply(df[, paste0("x", 1:15)], as.factor)
 
-## 修改前10个pc成分名称和genotype batch
 colnames(df)[101:111] <- c("genotype_array", paste0("pc", 1:10))
 write.csv(df, "res_new.csv")
 
@@ -30,7 +28,6 @@ colnames(df_sub) <- c("drinking", "smoking", "sex", "PsRS", "psrs", "PRS","Age",
                  "pc9", "pc10", paste0("x", 1:15))
 df_sub$PsRS_clean <- trimws(as.character(df_sub$PsRS))
 
-## 处理一下bmi类别
 df_sub <- df_sub %>%
   mutate(BMI_category = cut(
     BMI,
@@ -40,7 +37,6 @@ df_sub <- df_sub %>%
   )) %>%
   mutate(BMI_category = as.numeric(as.character(BMI_category)))
 
-## 处理haven列
 df_sub <- df_sub %>%
   mutate(across(c(drinking, smoking, PRS), ~ as.character(haven::as_factor(.))))
 df_sub <- df_sub[, -6]
@@ -59,19 +55,18 @@ df_sub[factor_col] <- lapply(df_sub[factor_col], as_factor)
 df_sub$ACD <- as.numeric(as.character(df_sub$ACD))
 df_sub$AD <- as.numeric(as.character(df_sub$AD))
 df_sub$VD <- as.numeric(as.character(df_sub$VD))
-names(df_sub) <- gsub(" ", "_", names(df_sub))  # 将空格改成下划线
+names(df_sub) <- gsub(" ", "_", names(df_sub)) 
 ```
 
 ## 存一个数据
 ```{R}
 saveRDS(df, "ukb_data.rds")
-source("E:/charls_db/ORCI.R")
+source("./ORCI.R")
 source("PAR.R")
 ```
 
 
 ```{R}
-## cox回归(ACD)
 res1<-coxph(Surv(TimeYACD,ACD)~PsRS,data=df_sub)
 
 res1_adj0 <- coxph(Surv(TimeYACD,ACD)~PsRS+Age+BMI+sex, data=df_sub)
@@ -86,12 +81,10 @@ print(ORCI(res1))
 print(ORCI(res1_adj0))
 print(ORCI(res1_adj))
 
-## 计算ACD各类psrs的人数
 sum(df_sub$PsRS_clean == '1' & df_sub$ACD == '1')
 sum(df_sub$PsRS_clean == '2' & df_sub$ACD == '1')
 sum(df_sub$PsRS_clean == '3' & df_sub$ACD == '1')
 
-## 计算par
 calculate_pfp_boot(res1, exposure_var = "PsRS_clean", data = df_sub)
 calculate_pfp_boot(res1_adj0, exposure_var = "PsRS_clean", data = df_sub)
 calculate_pfp_boot(res1_adj, exposure_var = "PsRS_clean", data = df_sub)
@@ -99,7 +92,6 @@ calculate_pfp_boot(res1_adj, exposure_var = "PsRS_clean", data = df_sub)
 
 
 ```{R}
-## cox回归(AD)
 res2<-coxph(Surv(TimeYAD,AD)~PsRS,data=df_sub)
 res2_adj0 <- coxph(Surv(TimeYAD,AD)~PsRS+Age+BMI+sex, data=df_sub)
 res2_adj <- coxph(Surv(TimeYAD,AD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
@@ -113,19 +105,16 @@ print(ORCI(res2))
 print(ORCI(res2_adj0))
 print(ORCI(res2_adj))
 
-## 计算各类型人数
 sum(df_sub$PsRS_clean == '1' & df_sub$AD == '1')
 sum(df_sub$PsRS_clean == '2' & df_sub$AD == '1')
 sum(df_sub$PsRS_clean == '3' & df_sub$AD == '1')
 
-## 计算par
 calculate_pfp_boot(res2, exposure_var = "PsRS_clean", data = df_sub)
 calculate_pfp_boot(res2_adj0, exposure_var = "PsRS_clean", data = df_sub)
 calculate_pfp_boot(res2_adj, exposure_var = "PsRS_clean", data = df_sub)
 ```
 
 ```{R}
-## cox回归(VD)
 res3<-coxph(Surv(TimeYVD,VD)~PsRS,data=df_sub)
 res3_adj0 <- coxph(Surv(TimeYVD,VD)~PsRS+Age+BMI+sex, data=df_sub)
 res3_adj <- coxph(Surv(TimeYVD,VD)~PsRS+sex+Age+BMI+APOE_status+`Cancer history`+`Hypertension history`+`Cholesterol history`+`Family history of dementia`, data=df_sub)
@@ -138,13 +127,10 @@ print(ORCI(res3))
 print(ORCI(res3_adj0))
 print(ORCI(res3_adj))
 
-
-## 计算人群个数
 sum(df_sub$PsRS_clean == '1' & df_sub$VD == '1')
 sum(df_sub$PsRS_clean == '2' & df_sub$VD == '1')
 sum(df_sub$PsRS_clean == '3' & df_sub$VD == '1')
 
-## 计算par
 calculate_pfp_boot(res3, exposure_var = "PsRS_clean", data = df_sub)
 calculate_pfp_boot(res3_adj0, exposure_var = "PsRS_clean", data = df_sub)
 calculate_pfp_boot(res3_adj, exposure_var = "PsRS_clean", data = df_sub)
@@ -197,7 +183,6 @@ print(ORCI(res3_adj_esi))
 
 ## 可视化
 ```{r}
-## 绘制多因素森林图
 # ACD
 library(ggplot2)
 library(ggpubr)
@@ -216,7 +201,6 @@ survminer::ggforest(model = res1_adj, data = as.data.frame(df_sub),cpositions = 
 
 
 ```{r}
-## 绘制多因素森林图
 # AD
 library(ggplot2)
 library(ggpubr)
@@ -235,7 +219,6 @@ survminer::ggforest(model = res2_adj, data = as.data.frame(df_sub),cpositions = 
 
 
 ```{r}
-## 绘制多因素森林图
 # VD
 library(ggplot2)
 library(ggpubr)
@@ -256,7 +239,6 @@ survminer::ggforest(model = res3_adj, data = as.data.frame(df_sub),cpositions = 
 ```{r}
 source("PFP_bootstrap.R")
 
-## 筛选中高prs风险的人群
 hm_prs <- subset(df_sub, subset = df_sub$PRS == 2 | df_sub$PRS == 3)
 hm_prs$PsRS_clean <- trimws(as.character(hm_prs$PsRS))
 
@@ -286,12 +268,10 @@ print(ORCI(res4_esi))
 print(ORCI(res4_adj0_esi))
 print(ORCI(res4_adj_esi))
 
-## 计算ACD各类psrs的人数
 sum(hm_prs$PsRS_clean == '1' & hm_prs$ACD == '1')
 sum(hm_prs$PsRS_clean == '2' & hm_prs$ACD == '1')
 sum(hm_prs$PsRS_clean == '3' & hm_prs$ACD == '1')
 
-## 计算par(后面改用bootstrap求置信区间 5.13)
 calculate_pfp_boot(res4, exposure_var = "PsRS_clean", data = hm_prs)
 calculate_pfp_boot(res4_adj0, exposure_var = "PsRS_clean", data = hm_prs)
 calculate_pfp_boot(res4_adj, exposure_var = "PsRS_clean", data = hm_prs)
@@ -323,12 +303,10 @@ print(ORCI(res5_esi))
 print(ORCI(res5_adj0_esi))
 print(ORCI(res5_adj_esi))
 
-## 计算AD各类psrs的人数
 sum(hm_prs$PsRS_clean == '1' & hm_prs$AD == '1')
 sum(hm_prs$PsRS_clean == '2' & hm_prs$AD == '1')
 sum(hm_prs$PsRS_clean == '3' & hm_prs$AD == '1')
 
-## 计算par
 calculate_pfp_boot(res5, exposure_var = "PsRS_clean", data = hm_prs)
 calculate_pfp_boot(res5_adj0, exposure_var = "PsRS_clean", data = hm_prs)
 calculate_pfp_boot(res5_adj, exposure_var = "PsRS_clean", data = hm_prs)
@@ -360,12 +338,10 @@ print(ORCI(res6_esi))
 print(ORCI(res6_adj0_esi))
 print(ORCI(res6_adj_esi))
 
-## 计算VD各类psrs的人数
 sum(hm_prs$PsRS_clean == '1' & hm_prs$VD == '1')
 sum(hm_prs$PsRS_clean == '2' & hm_prs$VD == '1')
 sum(hm_prs$PsRS_clean == '3' & hm_prs$VD == '1')
 
-## 计算par
 calculate_pfp_boot(res6, exposure_var = "PsRS_clean", data = hm_prs)
 calculate_pfp_boot(res6_adj0, exposure_var = "PsRS_clean", data = hm_prs)
 calculate_pfp_boot(res6_adj, exposure_var = "PsRS_clean", data = hm_prs)
@@ -395,7 +371,6 @@ res77 <- TableSubgroupMultiCox(
 
 
 ## AD
-# 发现类别不平衡，需要合并prs组别
 df_sub$PsRS_rec <- dplyr::recode(df_sub$PsRS,
                                  1 = `1`,
                                  2 = `2`,
